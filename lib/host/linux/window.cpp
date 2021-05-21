@@ -49,7 +49,7 @@ namespace cycfi { namespace elements
       // immediately.
 
       auto make_window =
-         [this, name, style_, bounds]()
+         [this, name, bounds]()
          {
             GtkWidget* win = gtk_application_window_new(get_app());
             g_object_ref(win);
