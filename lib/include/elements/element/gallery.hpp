@@ -9,7 +9,7 @@
 #include <elements/element/gallery/button.hpp>
 #include <elements/element/gallery/caption.hpp>
 #include <elements/element/gallery/check_box.hpp>
-#include <elements/element/gallery/dial.hpp>
+#include <elements/element/gallery/thumbwheel.hpp>
 #include <elements/element/gallery/group.hpp>
 #include <elements/element/gallery/icon_button.hpp>
 #include <elements/element/gallery/menu.hpp>
@@ -19,5 +19,6 @@
 #include <elements/element/gallery/radio_button.hpp>
 #include <elements/element/gallery/tab.hpp>
 #include <elements/element/gallery/text_entry.hpp>
+#include <elements/element/gallery/child_window.hpp>
 
 #endif

@@ -9,6 +9,7 @@
 #include <elements/element/element.hpp>
 #include <elements/element/proxy.hpp>
 #include <elements/element/text.hpp>
+#include <elements/element/size.hpp>
 #include <elements/support/theme.hpp>
 #include <infra/support.hpp>
 
@@ -17,6 +18,20 @@
 
 namespace cycfi { namespace elements
 {
+   ////////////////////////////////////////////////////////////////////////////
+   // spacers: empty horizontal or vertical element with specified width or
+   // height.
+   ////////////////////////////////////////////////////////////////////////////
+   inline auto vspacer(float size)
+   {
+      return vsize(size, element{});
+   }
+
+   inline auto hspacer(float size)
+   {
+      return hsize(size, element{});
+   }
+
    ////////////////////////////////////////////////////////////////////////////
    // Box: A simple colored box.
    ////////////////////////////////////////////////////////////////////////////
@@ -70,34 +85,74 @@ namespace cycfi { namespace elements
    }
 
    ////////////////////////////////////////////////////////////////////////////
-   // Basic Element
+   // Draw Element
    //
-   // The basic element takes in a function that draws something
+   // The draw element takes in a function that draws something
    ////////////////////////////////////////////////////////////////////////////
    template <typename F>
-   class basic_element : public element
+   class draw_element : public element
    {
    public:
 
-      basic_element(F f)
-       : f(f)
+      draw_element(F draw)
+       : _draw(draw)
       {}
 
-      void
-      draw(context const& ctx) override
+      void draw(context const& ctx) override
       {
-         f(ctx);
+         _draw(ctx);
       }
 
    private:
 
-      F f;
+      F _draw;
    };
 
    template <typename F>
-   inline basic_element<F> basic(F f)
+   [[deprecated("Use draw(F&& _draw) instead.")]]
+   inline draw_element<F> basic(F&& _draw)
    {
-      return { f };
+      return { std::forward<remove_cvref_t<F>>(_draw) };
+   }
+
+   template <typename F>
+   inline draw_element<F> draw(F&& _draw)
+   {
+      using ftype = remove_cvref_t<F>;
+      return { std::forward<ftype>(_draw) };
+   }
+
+   ////////////////////////////////////////////////////////////////////////////
+   // Draw Value Element
+   //
+   // The draw_value_element takes in a function that draws something based
+   // on the received value (see support/receiver.hpp)
+   ////////////////////////////////////////////////////////////////////////////
+   template <typename T, typename F>
+   class draw_value_element : public basic_receiver<T>, public element
+   {
+   public:
+
+      draw_value_element(F draw)
+       : _draw(draw)
+      {}
+
+      void draw(context const& ctx) override
+      {
+         _draw(ctx, this->value());
+      }
+
+   private:
+
+      F _draw;
+      T _value;
+   };
+
+   template <typename T, typename F>
+   inline draw_value_element<T, remove_cvref_t<F>> draw_value(F&& f)
+   {
+      using ftype = remove_cvref_t<F>;
+      return { std::forward<ftype>(f) };
    }
 
    ////////////////////////////////////////////////////////////////////////////
@@ -106,7 +161,6 @@ namespace cycfi { namespace elements
    class panel : public element
    {
    public:
-
                      panel(float opacity_ = get_theme().panel_color.alpha)
                       : _opacity(opacity_)
                      {}
@@ -209,6 +263,42 @@ namespace cycfi { namespace elements
       if (on_key(k))
          return true;
       return this->subject().key(ctx, k);
+   }
+
+   ////////////////////////////////////////////////////////////////////////////
+   // Click Intercept
+   ////////////////////////////////////////////////////////////////////////////
+   template <typename Subject>
+   struct click_intercept_element : public proxy<Subject>
+   {
+      using base_type = proxy<Subject>;
+
+                              click_intercept_element(Subject subject)
+                               : base_type(std::move(subject))
+                              {}
+
+      bool                    click(context const& ctx, mouse_button btn) override;
+      bool                    wants_control() const override { return true; }
+      bool                    wants_focus() const override { return true; }
+
+      using click_function = std::function<bool(mouse_button btn)>;
+
+      click_function          on_click = [](auto){ return false; };
+   };
+
+   template <typename Subject>
+   inline click_intercept_element<remove_cvref_t<Subject>>
+   click_intercept(Subject&& subject)
+   {
+      return { std::forward<Subject>(subject) };
+   }
+
+   template <typename Subject>
+   inline bool click_intercept_element<Subject>::click(context const& ctx, mouse_button btn)
+   {
+      if (on_click(btn))
+         return true;
+      return this->subject().click(ctx, btn);
    }
 
    ////////////////////////////////////////////////////////////////////////////

@@ -22,6 +22,11 @@ namespace cycfi { namespace elements
       return { 1.0f, 1.0f };
    }
 
+   unsigned element::span() const
+   {
+      return 1;
+   }
+
    element* element::hit_test(context const& ctx, point p)
    {
       return (ctx.bounds.includes(p)) ? this : nullptr;
@@ -41,9 +46,9 @@ namespace cycfi { namespace elements
          ctx.view.refresh(ctx, outward);
    }
 
-   element* element::click(context const& /* ctx */, mouse_button /* btn */)
+   bool element::click(context const& /* ctx */, mouse_button /* btn */)
    {
-      return nullptr;
+      return false;
    }
 
    void element::drag(context const& /* ctx */, mouse_button /* btn */)
@@ -101,5 +106,10 @@ namespace cycfi { namespace elements
    void element::on_tracking(context const& ctx, tracking state)
    {
       ctx.view.manage_on_tracking(*this, state);
+   }
+
+   void element::on_tracking(view& view_, tracking state)
+   {
+      view_.manage_on_tracking(*this, state);
    }
 }}

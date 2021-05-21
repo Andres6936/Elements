@@ -20,56 +20,88 @@ namespace cycfi { namespace elements
    ////////////////////////////////////////////////////////////////////////////
    // Basic Button
    ////////////////////////////////////////////////////////////////////////////
-   class basic_button : public proxy_base, public receiver<bool>, public sender<bool>
+   struct button_state
+   {
+                        button_state()
+                         : value(false)
+                         , hilite(false)
+                         , tracking(false)
+                        {}
+
+      bool              value : 1;
+      bool              hilite : 1;
+      bool              tracking : 1;
+   };
+
+   ////////////////////////////////////////////////////////////////////////////
+   // button_base: commmon base class for buttons
+   ////////////////////////////////////////////////////////////////////////////
+   struct button_base
+   {
+      using button_function = std::function<void(bool)>;
+
+      button_function   on_click;
+   };
+
+   class basic_button
+    : public button_base
+    , public proxy_base
+    , public receiver<bool>
+    , public sender<bool>
    {
    public:
 
-      using button_function = std::function<void(bool)>;
-
-                        basic_button()
-                         : _state(false)
-                         , _hilite(false)
-                        {}
-
       bool              wants_control() const override;
-      element*          click(context const& ctx, mouse_button btn) override;
+      bool              click(context const& ctx, mouse_button btn) override;
       bool              cursor(context const& ctx, point p, cursor_tracking status) override;
       void              drag(context const& ctx, mouse_button btn) override;
 
-      void              value(bool new_state) override;
-      bool              value() const override;
+      void              value(bool val) override;
+      bool              value() const override  { return _state.value; }
+      bool              tracking() const        { return _state.tracking; }
+      bool              hilite() const          { return _state.hilite; }
 
       void              send(bool val) override;
+      void              edit(view& view_, bool val) override;
       void              on_send(callback_function f) override;
-      button_function   on_click;
 
    protected:
 
-      bool              state(bool new_state);
+      bool              state(bool val);
+      void              tracking(bool val);
+      void              hilite(bool val);
 
    private:
 
-      bool              _state : 1;
-      bool              _hilite : 1;
+      bool              update_receiver();
+
+      button_state      _state;
    };
+
+   inline void basic_button::edit(view& view_, bool val)
+   {
+      send(val);
+      receiver<bool>::notify_edit(view_);
+   }
 
    ////////////////////////////////////////////////////////////////////////////
    // Layered Button
    ////////////////////////////////////////////////////////////////////////////
    class layered_button
-    : public array_composite<2, deck_element>, public receiver<bool>, public sender<bool>
+    : public button_base
+    , public array_composite<2, deck_element>, public receiver<bool>
+    , public sender<bool>
    {
    public:
 
       using base_type = array_composite<2, deck_element>;
-      using button_function = std::function<void(bool)>;
 
                         template <typename W1, typename W2>
                         layered_button(W1&& off, W2&& on);
 
       bool              wants_control() const override;
       element*          hit_test(context const& ctx, point p) override;
-      element*          click(context const& ctx, mouse_button btn) override;
+      bool              click(context const& ctx, mouse_button btn) override;
       void              drag(context const& ctx, mouse_button btn) override;
 
       void              value(bool new_state) override;
@@ -77,11 +109,12 @@ namespace cycfi { namespace elements
 
       void              send(bool val) override;
       void              on_send(callback_function f) override;
-      button_function   on_click;
 
    protected:
 
       bool              state(bool new_state);
+      void              tracking(bool) {}
+      void              hilite(bool) {}
 
    private:
 
@@ -109,7 +142,7 @@ namespace cycfi { namespace elements
                         template <typename W1, typename W2>
                         basic_toggle_button(W1&& off, W2&& on);
 
-      element*          click(context const& ctx, mouse_button btn) override;
+      bool              click(context const& ctx, mouse_button btn) override;
       void              drag(context const& ctx, mouse_button btn) override;
 
    private:
@@ -132,16 +165,18 @@ namespace cycfi { namespace elements
    {}
 
    template <typename Base>
-   inline element* basic_toggle_button<Base>::click(context const& ctx, mouse_button btn)
+   inline bool basic_toggle_button<Base>::click(context const& ctx, mouse_button btn)
    {
-      if (!ctx.bounds.includes(btn.pos))
+      if (btn.state != mouse_button::left || !ctx.bounds.includes(btn.pos))
       {
+         this->tracking(false);
          ctx.view.refresh(ctx);
-         return 0;
+         return false;
       }
 
       if (btn.down)
       {
+         this->tracking(true);
          if (this->state(!this->value()))    // toggle the state
          {
             ctx.view.refresh(ctx);           // we need to save the current state, the state
@@ -150,16 +185,19 @@ namespace cycfi { namespace elements
       }
       else
       {
+         this->tracking(false);
          this->state(_current_state);
          if (this->on_click)
             this->on_click(this->value());
+         ctx.view.refresh(ctx);
       }
-      return this;
+      return true;
    }
 
    template <typename Base>
    inline void basic_toggle_button<Base>::drag(context const& ctx, mouse_button btn)
    {
+      this->hilite(ctx.bounds.includes(btn.pos));
       if (this->state(!_current_state ^ ctx.bounds.includes(btn.pos)))
          ctx.view.refresh(ctx);
    }
@@ -177,8 +215,7 @@ namespace cycfi { namespace elements
                         template <typename W1, typename W2>
                         basic_latching_button(W1&& off, W2&& on);
 
-      element*          click(context const& ctx, mouse_button btn) override;
-      void              drag(context const& ctx, mouse_button btn) override;
+      bool              click(context const& ctx, mouse_button btn) override;
    };
 
    template <typename Base>
@@ -194,24 +231,33 @@ namespace cycfi { namespace elements
    {}
 
    template <typename Base>
-   inline element* basic_latching_button<Base>::click(context const& ctx, mouse_button btn)
+   inline bool basic_latching_button<Base>::click(context const& ctx, mouse_button btn)
    {
-      if (this->value() || !ctx.bounds.includes(btn.pos))
-         return nullptr;
+      if (btn.down && this->value())
+         return false;
+
+      if (btn.state != mouse_button::left || !ctx.bounds.includes(btn.pos))
+      {
+         this->tracking(false);
+         ctx.view.refresh(ctx);
+         return false;
+      }
+
       if (btn.down)
       {
-         Base::click(ctx, btn);
-         if (this->value() && this->on_click)
+         this->tracking(true);
+         this->on_tracking(ctx, this->begin_tracking);
+      }
+      else
+      {
+         this->tracking(false);
+         this->on_tracking(ctx, this->end_tracking);
+         if (this->on_click)
             this->on_click(true);
       }
-      else if (this->on_click)
-         this->on_click(true);
-      return this;
-   }
-
-   template <typename Base>
-   inline void basic_latching_button<Base>::drag(context const& /* ctx */, mouse_button /* btn */)
-   {
+      if (this->state(ctx.bounds.includes(btn.pos)))
+         ctx.view.refresh(ctx);
+      return true;
    }
 
    ////////////////////////////////////////////////////////////////////////////
@@ -220,7 +266,7 @@ namespace cycfi { namespace elements
    struct basic_choice_base : public selectable
    {
       virtual sender<bool>&   get_sender() = 0;
-      void                    do_click(context const& ctx, bool val, bool was_selected);
+      void                    do_click(context const& ctx);
    };
 
    template <typename Base = layered_button>
@@ -232,7 +278,7 @@ namespace cycfi { namespace elements
 
       void              select(bool state) override;
       bool              is_selected() const override;
-      element*          click(context const& ctx, mouse_button btn) override;
+      bool              click(context const& ctx, mouse_button btn) override;
       sender<bool>&     get_sender() override { return *this; }
    };
 
@@ -250,12 +296,23 @@ namespace cycfi { namespace elements
    }
 
    template <typename Base>
-   element* basic_choice<Base>::click(context const& ctx, mouse_button btn)
+   bool basic_choice<Base>::click(context const& ctx, mouse_button btn)
    {
-      bool was_selected = is_selected();
-      auto r = basic_latching_button<Base>::click(ctx, btn);
-      this->do_click(ctx, this->value(), was_selected);
-      return r;
+      if (btn.state == mouse_button::left)
+      {
+         if (btn.down)
+         {
+            return basic_latching_button<Base>::click(ctx, btn);
+         }
+         else
+         {
+            auto r = basic_latching_button<Base>::click(ctx, btn);
+            if (this->value())
+               this->do_click(ctx);
+            return r;
+         }
+      }
+      return false;
    }
 
    template <typename Subject>
